@@ -201,10 +201,11 @@ int sim7000_pdp_activate(void)
 		ret = -ENETUNREACH;
 		goto error;
 	}
-
+	
+	char cmd[64];
 	/* Set dual stack mode (IPv4/IPv6) */
-	// TODO: Change hardcoded telegram to MDM_APN!
-	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0, "AT+CNCFG=0,\"hologram\"",
+	snprintk(cmd, sizeof(cmd), "AT+CNCFG=0,\"%s\"", MDM_APN);
+	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0, cmd,
 				&mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
 		LOG_ERR("Could not configure pdp context!");
@@ -214,7 +215,8 @@ int sim7000_pdp_activate(void)
 	/*
 	 * Now activate the pdp context and wait for confirmation.
 	 */
-	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0, "AT+CNACT=1,\"hologram\"",
+	snprintk(cmd, sizeof(cmd), "AT+CNACT=1,\"%s\"", MDM_APN);
+	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0, cmd,
 				 &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
 		LOG_ERR("Could not activate PDP context.");
@@ -248,7 +250,7 @@ int sim7000_pdp_deactivate(void)
 		goto out;
 	}
 
-	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0, "AT+CNACT=0,0",
+	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0, "AT+CNACT=0",
 				 &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
 		LOG_ERR("Could not deactivate PDP context.");
