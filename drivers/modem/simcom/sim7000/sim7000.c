@@ -13,6 +13,8 @@ LOG_MODULE_REGISTER(modem_simcom_sim7000, CONFIG_MODEM_LOG_LEVEL);
 #include <zephyr/drivers/modem/simcom-sim7000.h>
 #include "sim7000.h"
 
+#define SIMCOM7000_PREFIX "SIMCOM_SIM7000"
+
 struct sim7000_data mdata;
 struct modem_context mctx;
 
@@ -663,8 +665,9 @@ static int modem_setup(void)
 		return ret;
 	}
 
-	if (strcmp(mdata.mdm_model, "SIMCOM_SIM7000G") != 0) {
-		LOG_ERR("Wrong modem model: %s", mdata.mdm_model);
+	// starts with SIMCOM_SIM7000
+	if (strncmp(mdata.mdm_model, SIMCOM7000_PREFIX, strlen(SIMCOM7000_PREFIX)) != 0)  {
+		LOG_ERR("Wrong modem model: %s, expecting %s", mdata.mdm_model, SIMCOM7000_PREFIX);
 		ret = -EINVAL;
 		return ret;
 	}
