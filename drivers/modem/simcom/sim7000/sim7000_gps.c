@@ -150,6 +150,22 @@ static int parse_cgnsinf(char *gps_buf)
 	gnss_skip_param(&saveptr);
 
 	char *hdop = gnss_get_next_param(NULL, ",", &saveptr);
+	char *pdop = gnss_get_next_param(NULL, ",", &saveptr);
+	char *vdop = gnss_get_next_param(NULL, ",", &saveptr);
+
+	/* discard reserved2 */
+	gnss_skip_param(&saveptr);
+
+	char *sat_view = gnss_get_next_param(NULL, ",", &saveptr);
+	char *sat_used = gnss_get_next_param(NULL, ",", &saveptr);
+
+	/* skip glonass and reserved3 */
+	gnss_skip_param(&saveptr);
+	gnss_skip_param(&saveptr);
+
+	char *cn0max = gnss_get_next_param(NULL, ",", &saveptr);
+	char *hpa = gnss_get_next_param(NULL, ",", &saveptr);
+	char *vpa = gnss_get_next_param(NULL, ",", &saveptr);
 
 	if (hdop == NULL) {
 		goto error;
@@ -187,6 +203,59 @@ static int parse_cgnsinf(char *gps_buf)
 		goto error;
 	}
 	gnss_data.hdop = number * 100 + fraction * 10;
+
+	if (pdop) {
+		ret = gnss_split_on_dot(pdop, &number, &fraction);
+		if (ret != 0) {
+			goto error;
+		}
+		gnss_data.pdop = number * 100 + fraction * 10;
+	} else {
+		gnss_data.pdop = 0;
+	}
+
+	if (vdop) {
+		ret = gnss_split_on_dot(vdop, &number, &fraction);
+		if (ret != 0) {
+			goto error;
+		}
+		gnss_data.vdop = number * 100 + fraction * 10;
+	} else {
+		gnss_data.vdop = 0;
+	}
+
+	if (hpa) {
+		ret = gnss_split_on_dot(hpa, &number, &fraction);
+		if (ret != 0) {
+			goto error;
+		}
+		gnss_data.hpa = number * 1000 + fraction;
+	} else {
+		gnss_data.hpa = 0;
+	}
+
+	if (vpa) {
+		ret = gnss_split_on_dot(vpa, &number, &fraction);
+		if (ret != 0) {
+			goto error;
+		}
+		gnss_data.vpa = number * 1000 + fraction;
+	} else {
+		gnss_data.vpa = 0;
+	}
+
+	// TODO: Consider attempting to parse this data regardless of fix status since it is useful
+	if (sat_view) {
+	gnss_data.sat_in_view = atoi(sat_view);
+	} else {
+		gnss_data.sat_in_view = 0;
+	}
+
+	if (sat_used) {
+		gnss_data.sat_used = atoi(sat_used);
+	} else {
+		gnss_data.sat_used = 0;
+	}
 
 	if (course) {
 		ret = gnss_split_on_dot(course, &number, &fraction);
@@ -233,6 +302,7 @@ MODEM_CMD_DEFINE(on_cmd_cgnsinf)
 	size_t out_len = net_buf_linearize(gps_buf, sizeof(gps_buf) - 1, data->rx_buf, 0, len);
 
 	gps_buf[out_len] = '\0';
+	LOG_INF("+CGNSINF: %s", gps_buf);
 	return parse_cgnsinf(gps_buf);
 }
 
@@ -274,42 +344,46 @@ MODEM_CMD_DEFINE(on_cmd_cgnscpy)
 	return 0;
 }
 
-static int16_t xtra_diff_h, xtra_duration_h;
+static int16_t xtra_duration_h;
 static struct tm *xtra_inject;
 
 MODEM_CMD_DEFINE(on_cmd_cgnsxtra)
 {
-	xtra_diff_h = (int16_t)strtol(argv[0], NULL, 10);
-	xtra_duration_h = (int16_t)strtol(argv[1], NULL, 10);
-	int ret = sim7000_utils_parse_time(argv[2], argv[3], xtra_inject);
+	xtra_duration_h = (int16_t)strtol(argv[0], NULL, 10);
+	int ret = sim7000_utils_parse_time(argv[1], argv[2], xtra_inject);
 
-	LOG_INF("XTRA validity: diff=%d, duration=%d, inject=%s,%s",
-		xtra_diff_h,
+	LOG_INF("XTRA validity: duration=%d, inject struct: %04d-%02d-%02d %02d:%02d:%02d, inject raw: %s %s",
 		xtra_duration_h,
-		argv[2],
-		argv[3]);
+		xtra_inject->tm_year,
+		xtra_inject->tm_mon + 1,
+		xtra_inject->tm_mday,
+		xtra_inject->tm_hour,
+		xtra_inject->tm_min,
+		xtra_inject->tm_sec,
+		argv[1],
+		argv[2]);
 	return ret;
 }
 
-int mdm_sim7000_query_xtra_validity(int16_t *diff_h, int16_t *duration_h, struct tm *inject)
+int mdm_sim7000_query_xtra_validity(int16_t *duration_h, struct tm *inject)
 {
-	struct modem_cmd cmds[] = { MODEM_CMD("+CGNSXTRA: ", on_cmd_cgnsxtra, 4U, ",") };
+	struct modem_cmd cmds[] = { MODEM_CMD("", on_cmd_cgnsxtra, 3U, ",") };
 	int ret = -EINVAL;
 
-	if (!diff_h || !duration_h || !inject) {
+	if (!duration_h || !inject) {
 		goto out;
 	}
 
 	xtra_inject = inject;
 
+	LOG_INF("Querying xtra validity, CMD: AT+CGNSXTRA");
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, cmds, ARRAY_SIZE(cmds), "AT+CGNSXTRA",
-				 &mdata.sem_response, K_SECONDS(2));
+				 &mdata.sem_response, K_SECONDS(15));
 	if (ret != 0) {
 		LOG_ERR("Failed to query xtra validity");
 		goto out;
 	}
 
-	*diff_h = xtra_diff_h;
 	*duration_h = xtra_duration_h;
 
 out:
@@ -321,11 +395,12 @@ static int sim7000_start_gnss_ext(bool xtra)
 {
 	int ret = -EALREADY;
 
-	if (sim7000_get_state() == SIM7000_STATE_GNSS) {
+	enum sim7000_state state = sim7000_get_state();
+	if (state == SIM7000_STATE_GNSS) {
 		LOG_WRN("Modem already in gnss state");
 		goto out;
-	} else if (sim7000_get_state() != SIM7000_STATE_IDLE) {
-		LOG_WRN("Can only activate gnss from idle state");
+	} else if (state != SIM7000_STATE_IDLE) {
+		LOG_WRN("Can only activate gnss from idle state, curr state = %u", state);
 		ret = -EINVAL;
 		goto out;
 	}
@@ -360,21 +435,23 @@ static int sim7000_start_gnss_ext(bool xtra)
 	}
 
 	/* Query the xtra file validity */
-	int16_t diff, duration;
+	int16_t duration;
 	struct tm inject;
 
-	ret = mdm_sim7000_query_xtra_validity(&diff, &duration, &inject);
+	ret = mdm_sim7000_query_xtra_validity(&duration, &inject);
 	if (ret != 0) {
 		LOG_WRN("Could not query xtra validity. Performing cold start");
 		goto coldstart;
 	}
 
-	if (diff < 0) {
+	if (duration < 0) {
 		LOG_WRN("XTRA file is not valid. Performing cold start");
 		goto coldstart;
 	}
 
 	/* Enable xtra functionality */
+	// TODO: Consider using warm start here
+	LOG_INF("Enabling xtra functionality, CMD: AT+CGNSXTRA=1");
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, "AT+CGNSXTRA=1",
 				 &mdata.sem_response, K_SECONDS(5));
 	if (ret < 0) {
@@ -383,7 +460,8 @@ static int sim7000_start_gnss_ext(bool xtra)
 	}
 
 coldstart:
-	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, "AT+CGNSCOLD",
+	LOG_INF("Starting gnss in %s mode\nAT+CGNSHOT", xtra ? "xtra" : "cold start");
+	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, "AT+CGNSHOT",
 				 &mdata.sem_response, K_SECONDS(2));
 	if (ret < 0) {
 		LOG_ERR("Failed to start gnss: %d", ret);
@@ -428,7 +506,6 @@ out:
 
 int mdm_sim7000_download_xtra(uint8_t server_id, const char *f_name)
 {
-	char buf[sizeof("AT+HTTPTOFS=\"http://iot#.xtracloud.net/xtra3##_72h.bin\",\"/customer/Xtra3.bin\"")];
 	int ret = -ENOTCONN;
 
 	if (sim7000_get_state() != SIM7000_STATE_NETWORKING) {
@@ -436,10 +513,19 @@ int mdm_sim7000_download_xtra(uint8_t server_id, const char *f_name)
 		goto out;
 	}
 
-	ret = snprintk(buf, sizeof(buf), "AT+HTTPTOFS=\"http://iot%hhu.xtracloud.net/%s\",\"/customer/Xtra3.bin\"",
-		server_id, f_name);
-	if (ret < 0) {
-		LOG_ERR("Failed to format xtra download");
+	char buf[128];
+
+	ret = snprintk(
+		buf,
+		sizeof(buf),
+		"AT+HTTPTOFS=\"http://iot%hhu.xtracloud.net/%s\",\"/customer/xtra3grc.bin\"",
+		server_id,
+		f_name
+	);
+
+	if (ret < 0 || ret >= sizeof(buf)) {
+		LOG_ERR("HTTPTOFS command truncated");
+		ret = -EINVAL;
 		goto out;
 	}
 

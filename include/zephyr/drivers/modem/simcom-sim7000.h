@@ -13,6 +13,7 @@
 
 #include <stdint.h>
 #include <time.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -68,6 +69,17 @@ struct sim7000_gnss_data {
 	 * Horizontal dilution of precision in 10^-2.
 	 */
 	uint16_t hdop;
+
+	/**
+	 *  Position dilution of precision in 10^-2.
+	 */
+	uint16_t pdop;
+
+	/**
+	 * Vertical dilution of precision in 10^-2.
+	 */
+	uint16_t vdop;
+
 	/**
 	 * Course over ground un 10^-2 degree.
 	 */
@@ -76,6 +88,12 @@ struct sim7000_gnss_data {
 	 * Speed in 10^-1 km/h.
 	 */
 	uint16_t kmh;
+
+	uint8_t sat_in_view;
+	uint8_t sat_used;
+
+	uint16_t hpa;     /* horizontal accuracy (m) */
+	uint16_t vpa;     /* vertical accuracy (m) */
 };
 
 /** Possible sms states in memory. */
@@ -318,7 +336,7 @@ int mdm_sim7000_download_xtra(uint8_t server_id, const char *f_name);
  * @param duration_h Valid time of the XTRA file in hours.
  * @param inject Injection time of the XTRA file.
  */
-int mdm_sim7000_query_xtra_validity(int16_t *diff_h, int16_t *duration_h, struct tm *inject);
+int mdm_sim7000_query_xtra_validity(int16_t *duration_h, struct tm *inject);
 
 /**
  * @brief Query gnss position form the modem.
