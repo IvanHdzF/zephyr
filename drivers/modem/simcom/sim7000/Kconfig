@@ -108,4 +108,10 @@ config MODEM_SIMCOM_SIM7000_BOOT_TYPE_CONSTRAINED
 
 endchoice
 
+config MODEM_SIM7000_RSSI_PERIODIC_POLLING
+    bool "Enable periodic RSSI polling"
+    default y
+    help
+      Enables periodic AT+CSQ polling using workqueue.
+
 endif # MODEM_SIM7000

@@ -71,10 +71,12 @@ void sim7000_rssi_query_work(struct k_work *work)
 		LOG_ERR("AT+CSQ ret:%d", ret);
 	}
 
+#if IS_ENABLED(CONFIG_MODEM_SIM7000_RSSI_PERIODIC_POLLING)
 	if (work) {
 		k_work_reschedule_for_queue(&modem_workq, &mdata.rssi_query_work,
 						K_SECONDS(RSSI_TIMEOUT_SECS));
 	}
+#endif
 }
 
 /*
