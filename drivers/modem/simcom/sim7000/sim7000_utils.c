@@ -33,7 +33,7 @@ int sim7000_utils_parse_time(uint8_t *date, uint8_t *time_str, struct tm *t)
 		goto out;
 	}
 
-	t->tm_year = (int)strtol(tmp, NULL, 10) - 1900;
+	t->tm_year = (int)strtol(tmp, NULL, 10);
 
 	tmp = strtok_r(NULL, "/", &saveptr);
 	if (tmp == NULL) {
