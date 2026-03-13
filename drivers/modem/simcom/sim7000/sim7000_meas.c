@@ -326,6 +326,15 @@ int mdm_sim7000_get_local_time(struct tm *t)
 
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, cmds, ARRAY_SIZE(cmds), "AT+CCLK?",
 				 &mdata.sem_response, K_SECONDS(2));
+	if (ret < 0) {
+		LOG_ERR("Failed to get local time");
+		goto out;
+	}
+	/* Compensate year for this case */
+	if (t->tm_year < 100) {
+		t->tm_year += 2000;
+	}
+
 
 out:
 	local_tm = NULL;
